@@ -1,0 +1,36 @@
+{
+  "database": {
+    "rules": "database.rules.json"
+  },
+  "hosting": {
+    "headers": [
+      {
+        "source": "index.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "max-age=0"
+          }
+        ]
+      }
+    ]
+  },
+  "functions": {
+    "source": "."
+  },
+  "emulators": {
+    "functions": {
+      "port": 8080,
+      "host": "10.4.10.87"
+    },
+    "database": {
+      "port": 9000
+    },
+    "hosting": {
+      "port": 4000
+    },
+    "ui": {
+      "enabled": true
+    }
+  }
+}
