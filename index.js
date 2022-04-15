@@ -20,27 +20,42 @@ const functions = require('firebase-functions');
 const {smarthome} = require('actions-on-google');
 const {google} = require('googleapis');
 const util = require('util');
-const admin = require('firebase-admin');
-const { firebase } = require('googleapis/build/src/apis/firebase');
-// Initialize Firebase
-admin.initializeApp();
-const firebaseRef = admin.database().ref('/');
 // Initialize Homegraph
 const auth = new google.auth.GoogleAuth({
   keyFile: 'smart-home-key.json',
   scopes: ['https://www.googleapis.com/auth/homegraph']
 });
+
 const homegraph = google.homegraph({
   version: 'v1',
   auth: auth
 });
 
+const app = smarthome({
+  debug: false,
+});
+
+// should be in database
+let global_state = false
+const client_id = 'sgvsvsv';
+const client_secret = 'abc';
+const auth_code = 'xxxxxx';
+const atoken = '123access';
+const rtoken = '123refresh';
+const UserId = '123';
+
+// checks header for valid token needs to be done by user, but its only me
+const check_headers = (headers) => {
+  return headers.authorization.split(" ").pop() == atoken
+}
 exports.fakeauth = functions.https.onRequest((request, response) => {
   const responseurl = util.format('%s?code=%s&state=%s',
-    decodeURIComponent(request.query.redirect_uri), 'xxxxxx',
+    decodeURIComponent(request.query.redirect_uri), auth_code,
     request.query.state);
- // console.log(responseurl);
-  return response.redirect(responseurl);
+    const google_host = (new URL(decodeURIComponent(request.query.redirect_uri))).hostname
+    if(google_host == "oauth-redirect.googleusercontent.com" || google_host == "oauth-redirect-sandbox.googleusercontent.com")
+      return response.redirect(responseurl);
+    return response.status(HTTP_STATUS_UNAUTHORIZED);
 });
 
 exports.faketoken = functions.https.onRequest((request, response) => {
@@ -48,20 +63,28 @@ exports.faketoken = functions.https.onRequest((request, response) => {
     ? request.query.grant_type : request.body.grant_type;
   const secondsInDay = 86400; // 60 * 60 * 24
   const HTTP_STATUS_OK = 200;
- // console.log(`Grant type ${grantType}`);
+  const HTTP_STATUS_UNAUTHORIZED = 401;
+
+  if(request.body.client_id !== client_id || request.body.client_secret !== client_secret)
+    response.status(HTTP_STATUS_UNAUTHORIZED);
+
+  if(request.body.authorization_code !== auth_code)
+    response.status(HTTP_STATUS_UNAUTHORIZED);
 
   let obj;
   if (grantType === 'authorization_code') {
     obj = {
       token_type: 'bearer',
-      access_token: '123access',
-      refresh_token: '123refresh',
+      access_token: atoken,
+      refresh_token: rtoken,
       expires_in: secondsInDay,
     };
   } else if (grantType === 'refresh_token') {
+    if(request.body.authorization_code != rtoken)
+      response.status(HTTP_STATUS_UNAUTHORIZED);
     obj = {
       token_type: 'bearer',
-      access_token: '123access',
+      access_token: atoken,
       expires_in: secondsInDay,
     };
   }
@@ -69,25 +92,27 @@ exports.faketoken = functions.https.onRequest((request, response) => {
     .json(obj);
 });
 
-const app = smarthome({
-  debug: true,
+app.onDisconnect(() => {
+  return {}
 });
 
-app.onSync((body) => {
+app.onSync((body, headers) => {
+  if (!check_headers(headers))
+    return {};
   return {
     requestId: body.requestId,
     payload: {
-      agentUserId: '123',
+      agentUserId: UserId,
       devices: [{
-        id: 'washer',
+        id: 'light',
         type: 'action.devices.types.LIGHT',
         traits: [
           'action.devices.traits.OnOff',
         ],
         name: {
-          defaultNames: ['My Washer'],
-          name: 'Washer',
-          nicknames: ['Washer'],
+          defaultNames: ['Kitchen light'],
+          name: 'kitchen light',
+          nicknames: ['light'],
         },
         willReportState: true,
       }],
@@ -95,21 +120,9 @@ app.onSync((body) => {
   };
 });
 
-const queryFirebase = async (deviceId) => {
-  const snapshot = await firebaseRef.child(deviceId).once('value');
-  const snapshotVal = snapshot.val();
-  return {
-    on: snapshotVal.OnOff.on,
-  };
-}
-const queryDevice = async (deviceId) => {
-  const data = await queryFirebase(deviceId);
-  return {
-    on: data.on,
-  };
-}
-
-app.onQuery(async (body) => {
+app.onQuery(async (body, headers) => {
+  if (!check_headers(headers))
+    return {};
   const {requestId} = body;
   const payload = {
     devices: {},
@@ -118,14 +131,11 @@ app.onQuery(async (body) => {
   const intent = body.inputs[0];
   for (const device of intent.payload.devices) {
     const deviceId = device.id;
-    queryPromises.push(queryDevice(deviceId)
-      .then((data) => {
-        // Add response to device payload
-        payload.devices[deviceId] = data;
+    queryPromises.push(() => {
+        payload.devices[deviceId] = global_state;
       }
-    ));
+    );
   }
-  // Wait for all promises to resolve
   await Promise.all(queryPromises)
   return {
     requestId: requestId,
@@ -135,19 +145,19 @@ app.onQuery(async (body) => {
 
 const updateDevice = async (execution,deviceId) => {
   const {params,command} = execution;
-  let state, ref;
   switch (command) {
     case 'action.devices.commands.OnOff':
-      state = {on: params.on};
-      ref = firebaseRef.child(deviceId).child('OnOff');
+      global_state = {on: params.on};
       break;
   }
+  console.log(global_state.on)
 
-  return ref.update(state)
-    .then(() => state);
+  return global_state;
 };
 
-app.onExecute(async (body) => {
+app.onExecute(async (body, headers) => {
+  if (!check_headers(headers))
+    return {};
   const {requestId} = body;
   // Execution results are grouped by status
   const result = {
@@ -193,7 +203,7 @@ exports.requestsync = functions.https.onRequest(async (request, response) => {
   try {
     const res = await homegraph.devices.requestSync({
       requestBody: {
-        agentUserId: '123'
+        agentUserId: UserId
       }
     });
     //console.info('Request sync response:', res.status, res.data);
@@ -204,23 +214,17 @@ exports.requestsync = functions.https.onRequest(async (request, response) => {
   }
 });
 
-/**
- * Send a REPORT STATE call to the homegraph when data for any device id
- * has been changed.
- */
-exports.reportstate = functions.database.ref('{deviceId}').onWrite(async (change, context) => {
- // console.info('Firebase write event triggered this cloud function');
-  const snapshot = change.after.val();
-
+const update_state = async (onlines, val, deviceId) => {
   const requestBody = {
     requestId: 'ff36a3cc', /* Any unique ID */
-    agentUserId: '123', /* Hardcoded user ID */
+    agentUserId: UserId, /* Hardcoded user ID */
     payload: {
       devices: {
         states: {
-          /* Report the current state of our washer */
-          [context.params.deviceId]: {
-            on: snapshot.OnOff.on,
+          /* Report the current state of our light */
+          [deviceId]: {
+            on: val,
+            online: onlines,
           },
         },
       },
@@ -230,18 +234,4 @@ exports.reportstate = functions.database.ref('{deviceId}').onWrite(async (change
   const res = await homegraph.devices.reportStateAndNotification({
     requestBody
   });
-  //console.info('Report state response:', res.status, res.data);
-});
-
-/**
- * Update the current state of the washer device
- */
-exports.updatestate = functions.https.onRequest((request, response) => {
-  firebaseRef.child('washer').update({
-    OnOff: {
-      on: request.body.on,
-    },
-  });
-  //console.log(request.body.on)
-  return response.status(200).end();
-});
+};
