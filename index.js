@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     https://www.apache.org/licenses/LICENSE-2.0
+ *   https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,26 +15,23 @@
  */
 
 'use strict';
-
 const functions = require('firebase-functions');
-const {smarthome} = require('actions-on-google');
 const {google} = require('googleapis');
 const util = require('util');
+const express = require('express');
+const app = express();
 
 const homegraph = google.homegraph({
-  version: 'v1',
-  auth: new google.auth.GoogleAuth({
-    keyFile: './smart-home-key.json',
-    scopes: ['https://www.googleapis.com/auth/homegraph']
-  })
+	version: 'v1',
+	auth: new google.auth.GoogleAuth({
+		keyFile: './smart-home-key.json',
+		scopes: ['https://www.googleapis.com/auth/homegraph']
+	})
 });
 
-const app = smarthome({
-  debug: false,
-});
 
 // should be in database
-let global_state = false
+let global_state = false;
 const client_id = 'sgvsvsv';
 const client_secret = 'abc';
 const auth_code = 'xxxxxx';
@@ -43,201 +40,219 @@ const rtoken = '123refresh';
 const UserId = '9ru93yutr93e9th';
 
 const update_state = async (onlines, val, deviceId) => {
-  global_state = val;
-  const res = await homegraph.devices.reportStateAndNotification({
-    requestBody: {
-      agentUserId: UserId,
-      requestId: Math.random().toString(),
-      payload: {
-        devices: {
-          states: {
-            [deviceId]: {
-              on: global_state,
-              online:onlines
-            }
-          }
-        }
-      }
-    }
-  });
+	global_state = val;
+	const res = await homegraph.devices.reportStateAndNotification({
+		requestBody: {
+			agentUserId: UserId,
+			requestId: Math.random().toString(),
+			payload: {
+				devices: {
+					states: {
+						[deviceId]: {
+							on: global_state,
+							online:onlines
+						}
+					}
+				}
+			}
+		}
+	});
 };
 
-exports.etst = functions.https.onRequest(async (request, response) => {
-  console.log(request.query.on == 'true')
-  update_state(true,request.query.on == 'true','light');
-  response.end()
+app.get('/test', function(request, response) {
+	console.log(request.query.on == 'true')
+	update_state(true,request.query.on == 'true','light');
+	response.end()
 });
 
 // checks header for valid token needs to be done by user, but its only me
 const check_headers = (headers) => {
-  return headers.authorization.split(" ").pop() == atoken
+	return headers.authorization.split(" ").pop() == atoken
 }
+
+const queryDevice = async (deviceId) => {
+	return {
+		online: true,
+		on: global_state
+	};
+}
+
+const updateDevice = async (execution,deviceId) => {
+	const {params,command} = execution;
+	switch (command) {
+		case 'action.devices.commands.OnOff':
+			global_state = {on: params.on};
+			break;
+	}
+	console.log(global_state.on)
+
+	return global_state;
+}
+
 exports.fakeauth = functions.https.onRequest((request, response) => {
-  const responseurl = util.format('%s?code=%s&state=%s',
-    decodeURIComponent(request.query.redirect_uri), auth_code,
-    request.query.state);
-    const google_host = (new URL(decodeURIComponent(request.query.redirect_uri))).hostname
-    if(google_host == "oauth-redirect.googleusercontent.com" || google_host == "oauth-redirect-sandbox.googleusercontent.com")
-      return response.redirect(responseurl);
-    return response.status(HTTP_STATUS_UNAUTHORIZED);
+	const responseurl = util.format('%s?code=%s&state=%s',
+		decodeURIComponent(request.query.redirect_uri), auth_code,
+		request.query.state);
+		const google_host = (new URL(decodeURIComponent(request.query.redirect_uri))).hostname
+		if(google_host == "oauth-redirect.googleusercontent.com" || google_host == "oauth-redirect-sandboxgoogleusercontent.com")
+			return response.redirect(responseurl);
+		return response.status(HTTP_STATUS_UNAUTHORIZED);
 });
 
 exports.faketoken = functions.https.onRequest((request, response) => {
-  const grantType = request.query.grant_type
-    ? request.query.grant_type : request.body.grant_type;
-  const secondsInDay = 86400; // 60 * 60 * 24
-  const HTTP_STATUS_OK = 200;
-  const HTTP_STATUS_UNAUTHORIZED = 401;
+	const grantType = request.query.grant_type
+		? request.query.grant_type : request.body.grant_type;
+	const secondsInDay = 86400; // 60 * 60 * 24
+	const HTTP_STATUS_OK = 200;
+	const HTTP_STATUS_UNAUTHORIZED = 401;
 
-  if(request.body.client_id !== client_id || request.body.client_secret !== client_secret)
-    response.status(HTTP_STATUS_UNAUTHORIZED);
+	if(request.body.client_id !== client_id || request.body.client_secret !== client_secret)
+		response.status(HTTP_STATUS_UNAUTHORIZED);
 
-  if(request.body.authorization_code !== auth_code)
-    response.status(HTTP_STATUS_UNAUTHORIZED);
+	if(request.body.authorization_code !== auth_code)
+		response.status(HTTP_STATUS_UNAUTHORIZED);
 
-  let obj;
-  if (grantType === 'authorization_code') {
-    obj = {
-      token_type: 'bearer',
-      access_token: atoken,
-      refresh_token: rtoken,
-      expires_in: secondsInDay,
-    };
-  } else if (grantType === 'refresh_token') {
-    if(request.body.authorization_code != rtoken)
-      response.status(HTTP_STATUS_UNAUTHORIZED);
-    obj = {
-      token_type: 'bearer',
-      access_token: atoken,
-      expires_in: secondsInDay,
-    };
-  }
-  response.status(HTTP_STATUS_OK)
-    .json(obj);
+	let obj;
+	if (grantType === 'authorization_code') {
+		obj = {
+			token_type: 'bearer',
+			access_token: atoken,
+			refresh_token: rtoken,
+			expires_in: secondsInDay,
+		};
+	} else if (grantType === 'refresh_token') {
+		if(request.body.authorization_code != rtoken)
+			response.status(HTTP_STATUS_UNAUTHORIZED);
+		obj = {
+			token_type: 'bearer',
+			access_token: atoken,
+			expires_in: secondsInDay,
+		};
+	}
+	response.status(HTTP_STATUS_OK)
+		.json(obj);
 });
 
-app.onDisconnect(() => {
-  return {}
-});
 
-app.onSync((body, headers) => {
-  if (!check_headers(headers))
-    return {};
-  return {
-    requestId: body.requestId,
-    payload: {
-      agentUserId: UserId,
-      devices: [{
-        id: 'light',
-        type: 'action.devices.types.LIGHT',
-        traits: [
-          'action.devices.traits.OnOff',
-        ],
-        name: {
-          defaultNames: ['Kitchen light'],
-          name: 'kitchen light',
-          nicknames: ['light'],
-        },
-        willReportState: true,
-      }],
-    },
-  };
-});
-const queryDevice = async (deviceId) => {
-  return {
-    online: true,
-    on: global_state
-  };
+const onDisconnect = () => {
+	return {}
 }
 
-app.onQuery(async (body, headers) => {
-  if (!check_headers(headers))
-    return {};
-  const {requestId} = body;
-  const payload = {
-    devices: {},
-  };
-  const queryPromises = [];
-  const intent = body.inputs[0];
-  for (const device of intent.payload.devices) {
-    const deviceId = device.id;
-    queryPromises.push(queryDevice(deviceId)
-    .then((data) => {
-      payload.devices[deviceId] = data;
-    },
-    ));
-  }
-  await Promise.all(queryPromises)
-  return {
-    requestId: requestId,
-    payload: payload,
-  };
+const onSync = (body) => {
+	return {
+		requestId: body.requestId,
+		payload: {
+			agentUserId: UserId,
+			devices: [{
+				id: 'light',
+				type: 'action.devices.types.LIGHT',
+				traits: [
+					'action.devices.traits.OnOff',
+				],
+				name: {
+					defaultNames: ['Kitchen light'],
+					name: 'kitchen light',
+					nicknames: ['light'],
+				},
+				willReportState: true,
+			}],
+		},
+	};
+}
+
+
+const onQuery = async (body) => {
+	const {requestId} = body;
+	const payload = {
+		devices: {},
+	};
+	const queryPromises = [];
+	const intent = body.inputs[0];
+	for (const device of intent.payload.devices) {
+		const deviceId = device.id;
+		queryPromises.push(queryDevice(deviceId)
+		.then((data) => {
+			payload.devices[deviceId] = data;
+		},
+		));
+	}
+	await Promise.all(queryPromises)
+	return {
+		requestId: requestId,
+		payload: payload,
+	};
+}
+
+
+const onExecute = async (body) => {
+	const {requestId} = body;
+	// Execution results are grouped by status
+	const result = {
+		ids: [],
+		status: 'SUCCESS',
+		states: {
+			online: true,
+		},
+	};
+
+	const executePromises = [];
+	const intent = body.inputs[0];
+	for (const command of intent.payload.commands) {
+		for (const device of command.devices) {
+			for (const execution of command.execution) {
+				executePromises.push(
+					updateDevice(execution,device.id)
+						.then((data) => {
+							result.ids.push(device.id);
+							Object.assign(result.states, data);
+						})
+						.catch(() => console.error(`Unable to update ${device.id}`))
+				);
+			}
+		}
+	}
+
+	await Promise.all(executePromises)
+	return {
+		requestId: requestId,
+		payload: {
+			commands: [result],
+		},
+	};
+}
+
+
+exports.smarthome = functions.https.onRequest((request, response) => {
+	if (!check_headers(request.headers))
+		return response.status(401);
+	const command = request.body.inputs[0].intent;
+	console.log(command)
+	switch (command) {
+		case 'action.devices.EXECUTE':
+			response.send(onExecute(request.body));
+		break;
+		case 'action.devices.SYNC':
+			response.send(onSync(request.body));
+		break;
+		case 'action.devices.QUERY':
+			return response.status(200).send(onQuery(request.body));
+		break;
+		case 'action.devices.DISSCONNECT':
+			response.send(onDisconnect(request.body));
+		break;
+	}
 });
 
-const updateDevice = async (execution,deviceId) => {
-  const {params,command} = execution;
-  switch (command) {
-    case 'action.devices.commands.OnOff':
-      global_state = {on: params.on};
-      break;
-  }
-  console.log(global_state.on)
-
-  return global_state;
-};
-
-app.onExecute(async (body, headers) => {
-  if (!check_headers(headers))
-    return {};
-  const {requestId} = body;
-  // Execution results are grouped by status
-  const result = {
-    ids: [],
-    status: 'SUCCESS',
-    states: {
-      online: true,
-    },
-  };
-
-  const executePromises = [];
-  const intent = body.inputs[0];
-  for (const command of intent.payload.commands) {
-    for (const device of command.devices) {
-      for (const execution of command.execution) {
-        executePromises.push(
-          updateDevice(execution,device.id)
-            .then((data) => {
-              result.ids.push(device.id);
-              Object.assign(result.states, data);
-            })
-            .catch(() => console.error(`Unable to update ${device.id}`))
-        );
-      }
-    }
-  }
-
-  await Promise.all(executePromises)
-  return {
-    requestId: requestId,
-    payload: {
-      commands: [result],
-    },
-  };
-});
-
-
-exports.smarthome = functions.https.onRequest(app);
-
-exports.requestsync = functions.https.onRequest(async (request, response) => {
-  response.set('Access-Control-Allow-Origin', '*');
-  try {
-    const res = await homegraph.devices.requestSync({
-      requestBody: {
-        agentUserId: UserId
-      }
-    });
-  } catch (err) {
-    console.error(err);
-    response.status(500).send(`Error requesting sync: ${err}`)
-  }
+app.get('/requestsync', async function(request, response) {
+	response.set('Access-Control-Allow-Origin', '*');
+	try {
+		const res = await homegraph.devices.requestSync({
+			requestBody: {
+				agentUserId: UserId
+			}
+		});
+	} catch (err) {
+		console.error(err);
+		response.status(500).send(`Error requesting sync: ${err}`)
+	}
 });
