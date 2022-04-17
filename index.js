@@ -20,15 +20,13 @@ const functions = require('firebase-functions');
 const {smarthome} = require('actions-on-google');
 const {google} = require('googleapis');
 const util = require('util');
-// Initialize Homegraph
-const auth = new google.auth.GoogleAuth({
-  keyFile: 'smart-home-key.json',
-  scopes: ['https://www.googleapis.com/auth/homegraph']
-});
 
 const homegraph = google.homegraph({
   version: 'v1',
-  auth: auth
+  auth: new google.auth.GoogleAuth({
+    keyFile: './smart-home-key.json',
+    scopes: ['https://www.googleapis.com/auth/homegraph']
+  })
 });
 
 const app = smarthome({
@@ -42,7 +40,33 @@ const client_secret = 'abc';
 const auth_code = 'xxxxxx';
 const atoken = '123access';
 const rtoken = '123refresh';
-const UserId = '123';
+const UserId = '9ru93yutr93e9th';
+
+const update_state = async (onlines, val, deviceId) => {
+  global_state = val;
+  const res = await homegraph.devices.reportStateAndNotification({
+    requestBody: {
+      agentUserId: UserId,
+      requestId: Math.random().toString(),
+      payload: {
+        devices: {
+          states: {
+            [deviceId]: {
+              on: global_state,
+              online:onlines
+            }
+          }
+        }
+      }
+    }
+  });
+};
+
+exports.etst = functions.https.onRequest(async (request, response) => {
+  console.log(request.query.on == 'true')
+  update_state(true,request.query.on == 'true','light');
+  response.end()
+});
 
 // checks header for valid token needs to be done by user, but its only me
 const check_headers = (headers) => {
@@ -119,6 +143,12 @@ app.onSync((body, headers) => {
     },
   };
 });
+const queryDevice = async (deviceId) => {
+  return {
+    online: true,
+    on: global_state
+  };
+}
 
 app.onQuery(async (body, headers) => {
   if (!check_headers(headers))
@@ -131,10 +161,11 @@ app.onQuery(async (body, headers) => {
   const intent = body.inputs[0];
   for (const device of intent.payload.devices) {
     const deviceId = device.id;
-    queryPromises.push(() => {
-        payload.devices[deviceId] = global_state;
-      }
-    );
+    queryPromises.push(queryDevice(deviceId)
+    .then((data) => {
+      payload.devices[deviceId] = data;
+    },
+    ));
   }
   await Promise.all(queryPromises)
   return {
@@ -199,39 +230,14 @@ exports.smarthome = functions.https.onRequest(app);
 
 exports.requestsync = functions.https.onRequest(async (request, response) => {
   response.set('Access-Control-Allow-Origin', '*');
-  //console.info('Request SYNC for user 123');
   try {
     const res = await homegraph.devices.requestSync({
       requestBody: {
         agentUserId: UserId
       }
     });
-    //console.info('Request sync response:', res.status, res.data);
-    response.json(res.data);
   } catch (err) {
     console.error(err);
     response.status(500).send(`Error requesting sync: ${err}`)
   }
 });
-
-const update_state = async (onlines, val, deviceId) => {
-  const requestBody = {
-    requestId: 'ff36a3cc', /* Any unique ID */
-    agentUserId: UserId, /* Hardcoded user ID */
-    payload: {
-      devices: {
-        states: {
-          /* Report the current state of our light */
-          [deviceId]: {
-            on: val,
-            online: onlines,
-          },
-        },
-      },
-    },
-  };
-
-  const res = await homegraph.devices.reportStateAndNotification({
-    requestBody
-  });
-};
