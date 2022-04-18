@@ -15,7 +15,6 @@
  */
 
 'use strict';
-const functions = require('firebase-functions');
 const {google} = require('googleapis');
 const util = require('util');
 const express = require('express');
@@ -89,17 +88,23 @@ const updateDevice = async (execution,deviceId) => {
 	return global_state;
 }
 
-exports.fakeauth = functions.https.onRequest((request, response) => {
+app.get('/fakeauth', (request, response) => {
+	const HTTP_STATUS_UNAUTHORIZED = 401;
+	response.setHeader('content-type','application/json;charset=utf-8')
 	const responseurl = util.format('%s?code=%s&state=%s',
 		decodeURIComponent(request.query.redirect_uri), auth_code,
 		request.query.state);
-		const google_host = (new URL(decodeURIComponent(request.query.redirect_uri))).hostname
-		if(google_host == "oauth-redirect.googleusercontent.com" || google_host == "oauth-redirect-sandboxgoogleusercontent.com")
-			return response.redirect(responseurl);
-		return response.status(HTTP_STATUS_UNAUTHORIZED);
+	const google_host = (new URL(decodeURIComponent(request.query.redirect_uri))).hostname;
+	if(google_host == "oauth-redirect.googleusercontent.com" || google_host == "oauth-redirect-sandboxgoogleusercontent.com"){
+		response.redirect(responseurl);
+		return;
+	}
+	response.status(HTTP_STATUS_UNAUTHORIZED);
+	return
 });
 
-exports.faketoken = functions.https.onRequest((request, response) => {
+app.post('/faketoken',  (request, response) => {
+	console.log(request.query)
 	const grantType = request.query.grant_type
 		? request.query.grant_type : request.body.grant_type;
 	const secondsInDay = 86400; // 60 * 60 * 24
@@ -222,25 +227,29 @@ const onExecute = async (body) => {
 }
 
 
-exports.smarthome = functions.https.onRequest((request, response) => {
+
+app.post('/smarthome', async (request, response) => {
 	if (!check_headers(request.headers))
 		return response.status(401);
 	const command = request.body.inputs[0].intent;
 	console.log(command)
+	let body = {};
 	switch (command) {
 		case 'action.devices.EXECUTE':
-			response.send(onExecute(request.body));
+			body = await onExecute(request.body);
 		break;
 		case 'action.devices.SYNC':
-			response.send(onSync(request.body));
+			body = onSync(request.body);
 		break;
 		case 'action.devices.QUERY':
-			return response.status(200).send(onQuery(request.body));
+			body = await onQuery(request.body);
 		break;
 		case 'action.devices.DISSCONNECT':
-			response.send(onDisconnect(request.body));
+			body = onDisconnect(request.body);
 		break;
 	}
+	response.setHeader('content-type','application/json;charset=utf-8')
+	response.status(200).send(body);
 });
 
 app.get('/requestsync', async function(request, response) {
@@ -256,3 +265,4 @@ app.get('/requestsync', async function(request, response) {
 		response.status(500).send(`Error requesting sync: ${err}`)
 	}
 });
+app.listen(8080);
