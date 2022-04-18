@@ -19,6 +19,12 @@ const {google} = require('googleapis');
 const util = require('util');
 const express = require('express');
 const app = express();
+const light = require("./pins")
+light.InitLight('14','15');
+
+light.SetLightPoll(async (val) => {
+	await update_state(true,val,'light');
+});
 
 app.use(express.urlencoded({
 	extended: true
@@ -34,8 +40,6 @@ const homegraph = google.homegraph({
 });
 
 
-// should be in database
-let global_state = false;
 const client_id = 'sgvsvsv';
 const client_secret = 'abc';
 const auth_code = 'xxxxxx';
@@ -44,7 +48,6 @@ const rtoken = '123refresh';
 const UserId = '9ru93yutr93e9th';
 
 const update_state = async (onlines, val, deviceId) => {
-	global_state = val;
 	const res = await homegraph.devices.reportStateAndNotification({
 		requestBody: {
 			agentUserId: UserId,
@@ -53,7 +56,7 @@ const update_state = async (onlines, val, deviceId) => {
 				devices: {
 					states: {
 						[deviceId]: {
-							on: global_state,
+							on: val,
 							online:onlines
 						}
 					}
@@ -63,12 +66,6 @@ const update_state = async (onlines, val, deviceId) => {
 	});
 };
 
-app.get('/test', function(request, response) {
-	console.log(request.query.on == 'true')
-	update_state(true,request.query.on == 'true','light');
-	response.end()
-});
-
 // checks header for valid token needs to be done by user, but its only me
 const check_headers = (headers) => {
 	return headers.authorization.split(" ").pop() == atoken
@@ -77,7 +74,7 @@ const check_headers = (headers) => {
 const queryDevice = async (deviceId) => {
 	return {
 		online: true,
-		on: global_state
+		on: light.ReadLight()
 	};
 }
 
@@ -85,12 +82,10 @@ const updateDevice = async (execution,deviceId) => {
 	const {params,command} = execution;
 	switch (command) {
 		case 'action.devices.commands.OnOff':
-			global_state = {on: params.on};
+			light.SetLight(params.on);
 			break;
 	}
-	console.log(global_state.on)
-
-	return global_state;
+	return params.on;
 }
 
 app.get('/fakeauth', (request, response) => {

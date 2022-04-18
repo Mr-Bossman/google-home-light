@@ -7,6 +7,8 @@ let pinA_ = undefined;
 const pinMode = (pin,mode) => {
 	try {
 		fs.writeFileSync('/sys/class/gpio/export', pin.toString());
+	}catch (_) {}
+	try {
 		fs.writeFileSync('/sys/class/gpio/gpio'+ pin.toString() + '/direction', mode);
 	} catch (err) {
 		console.error(err);
@@ -46,14 +48,20 @@ const SetLight = (val) => {
 }
 
 const SetLightPoll = (callback) => {
-	setInterval(() => {
+	setInterval(async () => {
 		let current_state = pinRead(pinB_);
 		if (current_state != global_led_state)
-			callback(current_state == true);
+			await callback(current_state == true);
 		global_led_state = current_state;
 	} ,500);
+}
+
+const ReadLight = () => {
+	return pinRead(pinB_) == true
 }
 
 exports.InitLight = InitLight;
 exports.SetLightPoll = SetLightPoll;
 exports.SetLight = SetLight;
+exports.ReadLight = ReadLight;
+
