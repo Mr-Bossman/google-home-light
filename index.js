@@ -89,6 +89,7 @@ const updateDevice = async (execution,deviceId) => {
 }
 
 app.get('/fakeauth', (request, response) => {
+	const HTTP_STATUS_UNAUTHORIZED = 401;
 	response.setHeader('content-type','application/json;charset=utf-8')
 	const responseurl = util.format('%s?code=%s&state=%s',
 		decodeURIComponent(request.query.redirect_uri), auth_code,
