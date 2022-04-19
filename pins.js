@@ -34,8 +34,8 @@ const pinWrite = (pin,val) => {
 const InitLight = (pinA,pinB) => {
 	pinA_ = pinA;
 	pinB_ = pinB;
-	pinMode(pinB_,'in');
-	pinMode(pinA_,'out');
+	pinMode(pinB_,'in\n');
+	pinMode(pinA_,'out\n');
 }
 
 const SetLight = (val) => {
